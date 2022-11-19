@@ -2412,7 +2412,7 @@ var dist = createCommonjsModule(function (module) {
 
   // src/channel.ts
   var signalingEncode = data => encode(data);
-  var _transport, _metadata, _subscribers, _members, _peers, _joinTimestamp, _joinChannel, joinChannel_fn, _getDataPacket, getDataPacket_fn, _broadcast, broadcast_fn, _write, write_fn, _read, read_fn, _handleOnline, handleOnline_fn, _handleSync, handleSync_fn, _online, online_fn, _syncState, syncState_fn, _offline, offline_fn;
+  var _transport, _metadata, _subscribers, _members, _peers, _joinTimestamp, _writer, _joinChannel, joinChannel_fn, _getDataPacket, getDataPacket_fn, _broadcast, broadcast_fn, _write, write_fn, _read, read_fn, _handleOnline, handleOnline_fn, _handleSync, handleSync_fn, _online, online_fn, _syncState, syncState_fn, _offline, offline_fn;
   var Channel = class {
     constructor(id, metadata, transport) {
       __privateAdd(this, _joinChannel);
@@ -2431,6 +2431,7 @@ var dist = createCommonjsModule(function (module) {
       __privateAdd(this, _members, []);
       __privateAdd(this, _peers, null);
       __privateAdd(this, _joinTimestamp, void 0);
+      __privateAdd(this, _writer, void 0);
       __publicField(this, "id");
       this.id = id;
       __privateSet(this, _metadata, metadata);
@@ -2480,6 +2481,7 @@ var dist = createCommonjsModule(function (module) {
   _members = new WeakMap();
   _peers = new WeakMap();
   _joinTimestamp = new WeakMap();
+  _writer = new WeakMap();
   _joinChannel = new WeakSet();
   joinChannel_fn = function () {
     __privateMethod(this, _write, write_fn).call(this, signalingEncode({
@@ -2511,9 +2513,11 @@ var dist = createCommonjsModule(function (module) {
   _write = new WeakSet();
   write_fn = function (data) {
     return __async(this, null, function* () {
-      const writer = __privateGet(this, _transport).datagrams.writable.getWriter();
-      writer.write(data);
-      writer.close();
+      console.log(__privateGet(this, _metadata), data, __privateGet(this, _transport).datagrams.writable);
+      if (!__privateGet(this, _writer)) {
+        __privateSet(this, _writer, __privateGet(this, _transport).datagrams.writable.getWriter());
+      }
+      __privateGet(this, _writer).write(data);
     });
   };
   _read = new WeakSet();
@@ -2528,7 +2532,7 @@ var dist = createCommonjsModule(function (module) {
           const data = new Uint8Array(value);
           const signaling = decode(data);
           if (signaling.t === "control") {
-            console.log(signaling.op, signaling.p);
+            console.log(signaling.op, signaling.p, signaling.pl);
             if (signaling.op === "channel_join") {
               __privateMethod(this, _online, online_fn).call(this);
               __privateMethod(this, _syncState, syncState_fn).call(this);
@@ -2543,7 +2547,9 @@ var dist = createCommonjsModule(function (module) {
               continue;
             }
             if (signaling.op === "peer_state") {
-              __privateMethod(this, _handleSync, handleSync_fn).call(this, decode(signaling.pl));
+              __privateMethod(this, _handleSync, handleSync_fn).call(this, __spreadValues({
+                id: signaling.p
+              }, decode(signaling.pl)));
               continue;
             }
           } else if (signaling.t === "data") {
@@ -2602,12 +2608,14 @@ var dist = createCommonjsModule(function (module) {
   };
   _online = new WeakSet();
   online_fn = function () {
+    console.log("online");
     __privateMethod(this, _write, write_fn).call(this, signalingEncode({
       t: "control",
       op: "peer_online",
       c: this.id,
       p: __privateGet(this, _metadata).id
     }));
+    console.log("online done");
   };
   _syncState = new WeakSet();
   syncState_fn = function () {
@@ -2665,12 +2673,14 @@ var dist = createCommonjsModule(function (module) {
   }
 
   // src/presence.ts
-  var _url, _metadata2, _channels, _transport3, _options, _onReadyCallbackFn, _onErrorCallbackFn, _onClosedCallbackFn, _formatUrl, formatUrl_fn, _connect, connect_fn;
+  var _url, _metadata2, _channels, _transport3, _options, _onReadyCallbackFn, _onErrorCallbackFn, _onClosedCallbackFn, _formatUrl, formatUrl_fn, _formatUrlWithIdAndSecret, formatUrlWithIdAndSecret_fn, _formatUrlWithPublicKey, formatUrlWithPublicKey_fn, _connect, connect_fn;
   var Presence = class {
     constructor(options) {
       __privateAdd(this, _formatUrl);
+      __privateAdd(this, _formatUrlWithIdAndSecret);
+      __privateAdd(this, _formatUrlWithPublicKey);
       __privateAdd(this, _connect);
-      __privateAdd(this, _url, void 0);
+      __privateAdd(this, _url, "");
       __privateAdd(this, _metadata2, void 0);
       __privateAdd(this, _channels, /* @__PURE__ */new Map());
       __privateAdd(this, _transport3, void 0);
@@ -2682,8 +2692,10 @@ var dist = createCommonjsModule(function (module) {
         id: options.id
       });
       __privateSet(this, _options, options);
-      __privateSet(this, _url, __privateMethod(this, _formatUrl, formatUrl_fn).call(this));
-      __privateMethod(this, _connect, connect_fn).call(this);
+      (() => __async(this, null, function* () {
+        __privateSet(this, _url, yield __privateMethod(this, _formatUrl, formatUrl_fn).call(this));
+        __privateMethod(this, _connect, connect_fn).call(this);
+      }))();
     }
     onReady(callbackFn) {
       __privateSet(this, _onReadyCallbackFn, callbackFn);
@@ -2695,7 +2707,7 @@ var dist = createCommonjsModule(function (module) {
       __privateSet(this, _onClosedCallbackFn, callbackFn);
     }
     joinChannel(channelId, metadata) {
-      __privateSet(this, _metadata2, __spreadValues(__spreadValues({}, __privateGet(this, _metadata2)), metadata));
+      __privateSet(this, _metadata2, __spreadValues(__spreadValues({}, __privateGet(this, _metadata2)), metadata || {}));
       const channel = new Channel(channelId, __privateGet(this, _metadata2), __privateGet(this, _transport3));
       __privateGet(this, _channels).set(channelId, channel);
       return channel;
@@ -2717,7 +2729,26 @@ var dist = createCommonjsModule(function (module) {
   _onClosedCallbackFn = new WeakMap();
   _formatUrl = new WeakSet();
   formatUrl_fn = function () {
-    return `${__privateGet(this, _options).url}?publickey=${__privateGet(this, _options).publicKey}&id=${__privateGet(this, _metadata2).id}`;
+    return __async(this, null, function* () {
+      if ("appId" in __privateGet(this, _options) && "publicKey" in __privateGet(this, _options)) {
+        return __privateMethod(this, _formatUrlWithPublicKey, formatUrlWithPublicKey_fn).call(this);
+      } else if ("appId" in __privateGet(this, _options) && "appSecret" in __privateGet(this, _options) && "endpoint" in __privateGet(this, _options)) {
+        return yield __privateMethod(this, _formatUrlWithIdAndSecret, formatUrlWithIdAndSecret_fn).call(this);
+      }
+      throw new Error("Invalid options");
+    });
+  };
+  _formatUrlWithIdAndSecret = new WeakSet();
+  formatUrlWithIdAndSecret_fn = function () {
+    return __async(this, null, function* () {
+      const response = yield fetch(__privateGet(this, _options).endpoint);
+      const data = yield response.json();
+      return `${__privateGet(this, _options).url}?token=${data.token}&id=${__privateGet(this, _metadata2).id}`;
+    });
+  };
+  _formatUrlWithPublicKey = new WeakSet();
+  formatUrlWithPublicKey_fn = function () {
+    return `${__privateGet(this, _options).url}?publickey=${__privateGet(this, _options).publicKey}&id=${__privateGet(this, _metadata2).id}&app_id=${__privateGet(this, _options).appId}`;
   };
   _connect = new WeakSet();
   connect_fn = function () {
@@ -2734,7 +2765,7 @@ var dist = createCommonjsModule(function (module) {
       });
     });
   };
-  var createPresence = options => __async(void 0, null, function* () {
+  function createPresence(options) {
     return new Promise(resolve => {
       let id = (options == null ? void 0 : options.id) || randomId();
       let url = (options == null ? void 0 : options.url) || "https://prsc.yomo.dev";
@@ -2747,7 +2778,7 @@ var dist = createCommonjsModule(function (module) {
         resolve(presence);
       });
     });
-  });
+  }
 });
 
 function styleInject(css, ref) {
@@ -2787,9 +2818,10 @@ let HugGroup = class HugGroup extends s {
     }
     createRenderRoot() {
         dist.createPresence({
-            url: 'https://lo.allegrocloud.io:8443/v1/ws',
+            url: 'https://prscd2.allegro.earth/v1',
             publicKey: 'BYePWMVCfkWRarcDLBIbSFzrMkDldWIBuKsA',
             id: this.id,
+            appId: 'cc',
         }).then((yomo) => {
             this.channel = yomo.joinChannel('hug-group', {
                 id: this.id,
